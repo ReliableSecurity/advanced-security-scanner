@@ -362,18 +362,10 @@ async def scan_example():
 asyncio.run(scan_example())
 ```
 
-## 📞 Поддержка
-
 ### Получение помощи
-- 📧 Email: support@security-scanner.dev
 - 🐛 Issues: GitHub Issues
 - 💬 Discussions: GitHub Discussions
 - 📖 Wiki: GitHub Wiki
-
-### Коммьюнити
-- 🐦 Twitter: @SecurityScanner
-- 💬 Discord: Security Scanner Community
-- 📺 YouTube: Security Scanner Channel
 
 ## 👨‍💻 Автор
 
