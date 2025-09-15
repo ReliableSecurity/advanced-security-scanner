@@ -1,0 +1,179 @@
+version: '3.8'
+
+services:
+  security-scanner:
+    build: .
+    container_name: advanced-security-scanner
+    restart: unless-stopped
+    
+    ports:
+      - "8000:8000"    # Web API
+      - "8080:8080"    # Alternative port
+    
+    volumes:
+      # Persistent data
+      - scanner_logs:/opt/security-scanner/logs
+      - scanner_reports:/opt/security-scanner/reports
+      - scanner_config:/opt/security-scanner/config
+      - scanner_data:/opt/security-scanner/data
+      
+      # Optional: Mount host directories
+      # - ./logs:/opt/security-scanner/logs
+      # - ./reports:/opt/security-scanner/reports
+      # - ./config:/opt/security-scanner/config
+    
+    environment:
+      # Scanner configuration
+      - SCANNER_MODE=web
+      - LOG_LEVEL=INFO
+      - MAX_CONCURRENT_SCANS=5
+      - ENABLE_NOTIFICATIONS=true
+      
+      # Database configuration
+      - DB_PATH=/opt/security-scanner/data/scanner.db
+      - VULN_CACHE_PATH=/opt/security-scanner/data/vulnerability_cache.db
+      
+      # API configuration
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - API_WORKERS=4
+      
+      # Security settings
+      - SECRET_KEY=${SECRET_KEY:-default-insecure-key-change-me}
+      - ALLOWED_HOSTS=localhost,127.0.0.1,0.0.0.0
+      
+      # Tool paths (pre-configured in container)
+      - NMAP_PATH=/usr/bin/nmap
+      - NUCLEI_PATH=/usr/local/bin/nuclei
+      - NIKTO_PATH=/usr/bin/nikto
+      - SQLMAP_PATH=/usr/bin/sqlmap
+      
+      # Notification settings (optional)
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
+      - SMTP_SERVER=${SMTP_SERVER:-localhost}
+      - EMAIL_FROM=${EMAIL_FROM:-scanner@security.local}
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    
+    # Security options
+    security_opt:
+      - no-new-privileges:true
+    
+    # User mapping
+    user: "1000:1000"  # Adjust based on your host user
+    
+    # Network configuration
+    networks:
+      - scanner_network
+
+  # Optional: Redis for caching and job queues
+  redis:
+    image: redis:7-alpine
+    container_name: scanner-redis
+    restart: unless-stopped
+    
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-scanner123}
+    
+    volumes:
+      - redis_data:/data
+    
+    ports:
+      - "6379:6379"
+    
+    networks:
+      - scanner_network
+    
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+
+  # Optional: PostgreSQL for advanced data storage
+  postgres:
+    image: postgres:15-alpine
+    container_name: scanner-postgres
+    restart: unless-stopped
+    
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-scanner}
+      POSTGRES_USER: ${POSTGRES_USER:-scanner}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-scanner123}
+    
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/init-scripts:/docker-entrypoint-initdb.d
+    
+    ports:
+      - "5432:5432"
+    
+    networks:
+      - scanner_network
+    
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+
+  # Optional: Nginx reverse proxy
+  nginx:
+    image: nginx:alpine
+    container_name: scanner-nginx
+    restart: unless-stopped
+    
+    ports:
+      - "80:80"
+      - "443:443"
+    
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./docker/nginx/ssl:/etc/nginx/ssl:ro
+      - scanner_reports:/usr/share/nginx/html/reports:ro
+    
+    depends_on:
+      - security-scanner
+    
+    networks:
+      - scanner_network
+
+# Named volumes for persistent data
+volumes:
+  scanner_logs:
+    driver: local
+  scanner_reports:
+    driver: local
+  scanner_config:
+    driver: local
+  scanner_data:
+    driver: local
+  redis_data:
+    driver: local
+  postgres_data:
+    driver: local
+
+# Custom network
+networks:
+  scanner_network:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.20.0.0/16
